@@ -1,0 +1,25 @@
+{
+    "name": "sienekib/layers",
+    "description": "Database Layer By Siene Kelyson",
+    "type": "library",
+    "license": "MIT",
+    "autoload": {
+        "psr-4": {
+            "Sienekib\\Layers\\": "src/Layers"
+        }
+    },
+    "authors": [
+        {
+            "name": "sienekib20",
+            "email": "sienekib@gmail.com"
+        }
+    ],
+    "minimum-stability": "dev",
+    "require": {
+        "php": "^7.4|^8.1",
+        "facade/ignition-contracts": "^1.0"
+    },
+    "require-dev": {
+        "spatie/ignition": "^1.15"
+    }
+}
