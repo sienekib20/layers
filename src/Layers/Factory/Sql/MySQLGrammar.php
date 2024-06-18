@@ -6,7 +6,7 @@ use Sienekib\Layers\Utils\Inflector;
 
 /**
  * Class MySQLGrammar
- * @package Sienekib\Layers\Grammar
+ * @package Sienekib\Layers\Factory\Sql
  *
  * This class is responsible for compiling SQL statements.
  */
@@ -39,15 +39,20 @@ class MySQLGrammar
     }
 
     /**
-     * Compile a SELECT SQL statement.
+     * Compile a SELECT SQL statement with specified fields and optional condition.
      *
      * @param string $table
+     * @param string $fields
      * @param string $condition
      * @return string
      */
     public function compileSelectFields(string $table, string $fields, string $condition = ''): string
     {
-        return !empty($condition) ? "SELECT {$fields} FROM {$table} WHERE {$condition}" : "SELECT {$fields} FROM {$table}";
+        if (!empty($condition)) {
+            return "SELECT {$fields} FROM {$table} WHERE {$condition}";
+        } else {
+            return "SELECT {$fields} FROM {$table}";
+        }
     }
 
     /**
@@ -55,13 +60,13 @@ class MySQLGrammar
      *
      * @param string $table
      * @param array $fields
+     * @param string $condition
      * @return string
      */
-    public function compileUpdate(string $table, array $fields): string
+    public function compileUpdate(string $table, array $fields, string $condition): string
     {
         $setClause = implode(", ", array_map(fn($key) => "{$key} = ?", array_keys($fields)));
-        $tableIdFieldName = Inflector::singularize($table, 'pt') . '_id';
-        return "UPDATE {$table} SET {$setClause} WHERE {$tableIdFieldName} = ?";
+        return "UPDATE {$table} SET {$setClause} WHERE {$condition}";
     }
 
     /**
@@ -77,10 +82,45 @@ class MySQLGrammar
     }
 
     /**
-     * Compile a RAW SQL statement.
+     * Compile a TRUNCATE TABLE SQL statement.
+     *
+     * @param string $table
+     * @return string
+     */
+    public function compileTruncate(string $table): string
+    {
+        return "TRUNCATE TABLE {$table}";
+    }
+
+    /**
+     * Compile an EXISTS SQL statement.
      *
      * @param string $table
      * @param string $condition
+     * @return string
+     */
+    public function compileExists(string $table, string $condition): string
+    {
+        return "SELECT EXISTS (SELECT 1 FROM {$table} WHERE {$condition})";
+    }
+
+    /**
+     * Compile a COUNT SQL statement.
+     *
+     * @param string $table
+     * @param string $condition
+     * @return string
+     */
+    public function compileCount(string $table, string $condition = ''): string
+    {
+        $whereClause = !empty($condition) ? " WHERE {$condition}" : "";
+        return "SELECT COUNT(*) FROM {$table}{$whereClause}";
+    }
+
+    /**
+     * Compile a RAW SQL statement.
+     *
+     * @param string $sql
      * @return string
      */
     public function compileRaw(string $sql): string

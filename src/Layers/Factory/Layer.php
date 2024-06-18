@@ -41,19 +41,34 @@ class Layer
     }
 
     /**
-     * Execute the sql non-ruled.
+     * Execute a raw SQL query with bindings.
      *
      * @param string $sql
      * @param array $bindings
-     * @return self
+     * @param int $fetchMode
+     * @param int|null $limit
+     * @return array
+     * @throws \PDOException Em caso de erro na execução da consulta
      */
-    public static function raw(string $sql, array $bindings = []): array
+    public static function raw(string $sql, array $bindings = [], int $fetchMode = PDO::FETCH_ASSOC, ?int $limit = null): array
     {
-        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
-        $stmt->execute($bindings);
+        try {
+            $stmt = Connection::getInstance()->getPdo()->prepare($sql);
+            $stmt->execute($bindings);
 
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
+            if ($limit !== null) {
+                $stmt->setFetchMode($fetchMode);
+                return $stmt->fetchAll();
+            }
+
+            return $stmt->fetchAll($fetchMode) ?? [];
+        } catch (\PDOException $e) {
+            // Aqui você pode tratar o erro conforme necessário, por exemplo, logar o erro ou lançar novamente
+            throw new \PDOException("Error executing raw query: " . $e->getMessage());
+        }
     }
+
+
 
     /**
      * Insert a record into the table.
@@ -91,10 +106,15 @@ class Layer
      * Select records from the table.
      *
      * @param string $condition
+     * @param array $bindings
+     * @param int $limit
+     * @param bool $fetchFirst
+     * @param string|null $orderBy
+     * @param string $groupBy
      * @return array
      * @throws IgnitionException
      */
-    public static function select(string $condition, array $bindings): array
+    public static function select(string $condition, array $bindings = [], int $limit = 0, bool $fetchFirst = false, string $orderBy = null, string $groupBy = ''): array
     {
         if (!self::$table) {
             try {
@@ -108,52 +128,38 @@ class Layer
 
         $sql = self::$grammar->compileSelect(self::$table, $condition);
 
-        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
+        if (!empty($groupBy)) {
+            $sql .= " GROUP BY {$groupBy}";
+        }
 
+        if (!empty($orderBy)) {
+            $sql .= " ORDER BY {$orderBy}";
+        }
+
+        if ($limit > 0) {
+            $sql .= " LIMIT {$limit}";
+        }
+
+        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
         $stmt->execute($bindings);
 
+        if ($fetchFirst) {
+            return $stmt->fetch(PDO::FETCH_ASSOC) ?? [];
+        }
+
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
-    }
-
-    /**
-     * Select records from the table.
-     *
-     * @param string $condition
-     * @return array
-     * @throws IgnitionException
-     */
-    public static function selectFields(string $fields, string $condition = '', array $bindings = []): array
-    {
-        if (!self::$table) {
-            try {
-                throw new \Exception("Table not specified.");
-            } catch (\Exception $e) {
-                Ignition::make()->renderException($e);
-            }
-        }
-
-        if (!empty($condition)) {
-            self::$rules->validateCondition($condition);
-            $sql = self::$grammar->compileSelectFields(self::$table, $fields, $condition);
-        } else {
-            $sql = self::$grammar->compileSelectFields(self::$table, $fields);
-        }
-
-        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
-        $stmt->execute();
-
-        return $stmt->fetchAll(PDO::FETCH_ASSOC) ?? [];
     }
 
     /**
      * Update a record in the table.
      *
      * @param array $fields
-     * @param int $id
+     * @param string $condition
+     * @param array $bindings
      * @return bool
      * @throws IgnitionException
      */
-    public static function update(array $fields, int $id): bool
+    public static function update(array $fields, string $condition, array $bindings = []): bool
     {
         if (!self::$table) {
             try {
@@ -165,11 +171,11 @@ class Layer
 
         self::$rules->validateUpdateFields($fields);
 
-        $sql = self::$grammar->compileUpdate(self::$table, $fields);
+        $sql = self::$grammar->compileUpdate(self::$table, $fields, $condition);
 
         $stmt = Connection::getInstance()->getPdo()->prepare($sql);
-        $fields[] = $id;
-        $result = $stmt->execute(array_values($fields));
+        $mergedBindings = array_merge(array_values($fields), $bindings);
+        $result = $stmt->execute($mergedBindings);
 
         return $result;
     }
@@ -178,6 +184,7 @@ class Layer
      * Delete records from the table.
      *
      * @param string $condition
+     * @param array $bindings
      * @return bool
      * @throws IgnitionException
      */
@@ -197,5 +204,85 @@ class Layer
 
         $stmt = Connection::getInstance()->getPdo()->prepare($sql);
         return $stmt->execute($bindings);
+    }
+
+    /**
+     * Count records in the table.
+     *
+     * @param string $condition
+     * @param array $bindings
+     * @return int
+     */
+    public static function count(string $condition = '', array $bindings = []): int
+    {
+        if (!self::$table) {
+            try {
+                throw new \Exception("Table not specified.");
+            } catch (\Exception $e) {
+                Ignition::make()->renderException($e);
+            }
+        }
+
+        if (!empty($condition)) {
+            self::$rules->validateCondition($condition);
+            $sql = self::$grammar->compileCount(self::$table, $condition);
+        } else {
+            $sql = self::$grammar->compileCount(self::$table);
+        }
+
+        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
+        $stmt->execute($bindings);
+
+        return (int) $stmt->fetchColumn();
+    }
+
+    /**
+     * Truncate the table.
+     *
+     * @return bool
+     * @throws IgnitionException
+     */
+    public static function truncate(): bool
+    {
+        if (!self::$table) {
+            try {
+                throw new \Exception("Table not specified.");
+            } catch (\Exception $e) {
+                Ignition::make()->renderException($e);
+            }
+        }
+
+        $sql = self::$grammar->compileTruncate(self::$table);
+
+        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
+        return $stmt->execute();
+    }
+
+    /**
+     * Check if records exist in the table matching the condition.
+     *
+     * @param string $condition
+     * @param array $bindings
+     * @return bool
+     * @throws IgnitionException
+     */
+    public static function exists(string $condition, array $bindings = []): bool
+    {
+        if (!self::$table) {
+            try {
+                throw new \Exception("Table not specified.");
+            } catch (\Exception $e) {
+                Ignition::make()->renderException($e);
+            }
+        }
+
+        self::$rules->validateCondition($condition);
+
+        $sql = self::$grammar->compileExists(self::$table, $condition);
+
+        $stmt = Connection::getInstance()->getPdo()->prepare($sql);
+        $stmt->execute($bindings);
+
+        return (bool) $stmt->fetchColumn();
     }
 }
